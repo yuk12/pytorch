@@ -43,12 +43,6 @@ class ProcessGroupAgent : public RpcAgent {
                     std::shared_ptr<c10d::ProcessGroup> pg,
                     int numSendRecvThreads = 4);
 
-  // This method wraps the destination information and the message into a
-  // SendWork object, and put the SendWork into a queue. Another thread will
-  // consume SendWork from the queue and send it out.
-  std::shared_ptr<FutureMessage> send(
-      const WorkerId& to, Message&& message) override;
-
   const WorkerId& getWorkerId(const std::string& workerName) const override;
 
   void join() override;
@@ -56,6 +50,13 @@ class ProcessGroupAgent : public RpcAgent {
   void sync() override;
 
   int16_t getWorkerId() override;
+
+ protected:
+  // This method wraps the destination information and the message into a
+  // SendWork object, and put the SendWork into a queue. Another thread will
+  // consume SendWork from the queue and send it out.
+  std::shared_ptr<FutureMessage> sendImpl(const WorkerId& to, Message&& message)
+      override;
 
  private:
   // put SendWork into a queue and notify the worker thread
