@@ -1,4 +1,7 @@
 from test_jit import JitTestCase
+from common_utils import run_tests
+import sys
+sys.setrecursionlimit(1500)
 
 
 class TestScript(JitTestCase):
@@ -263,9 +266,10 @@ class TestScript(JitTestCase):
         self.checkScript(test_rpartition, ())
 
         def test_split():
-            # type: () -> Tuple[List[str], List[str], List[str], List[str], List[str], List[str], List[str], List[str], List[str]]
             return (
                 "a a a a a".split(),
+                "a\na\ta a".split(),
+                "a\na\t a a".split(),
                 " a a a a a ".split(" "),
                 "a a a a a ".split(" ", 10),
                 "a a a a a ".split(" ", -1),
@@ -278,18 +282,20 @@ class TestScript(JitTestCase):
         self.checkScript(test_split, ())
 
         def test_rsplit():
-            # type: () -> Tuple[List[str], List[str], List[str], List[str], List[str], List[str], List[str], List[str], List[str]]
             return (
                 "a a a a a".rsplit(),
-                " a a a a a ".rsplit(" "),
-                "a a a a a ".rsplit(" ", 10),
-                "a a a a a ".rsplit(" ", -1),
-                "a a a a a ".rsplit(" ", 3),
-                " a a a a a ".rsplit("*"),
-                " a*a a*a a ".rsplit("*"),
-                " a*a a*a a ".rsplit("*", -1),
-                " a*a a*a a".rsplit("a*", 10),
+                "b\nb\tb b".rsplit(),
+                "b\nb\t b b".rsplit(),
+                " c c c c c ".rsplit(" "),
+                "d d d d d ".rsplit(" ", 10),
+                "e e e e e ".rsplit(" ", -1),
+                "f f f f f ".rsplit(" ", 3),
+                " g g g g g ".rsplit("*"),
+                " h*h h*h h ".rsplit("*"),
+                " i*i i*i i ".rsplit("*", -1),
+                " j*j j*j j".rsplit("j*", 10),
             )
+
         self.checkScript(test_rsplit, ())
 
         def test_splitlines():
@@ -310,3 +316,6 @@ class TestScript(JitTestCase):
 
         for i in range(len(inputs) - 1):
             self.checkScript(test_str_cmp, (inputs[i], inputs[i + 1]))
+
+if __name__ == '__main__':
+    run_tests()
