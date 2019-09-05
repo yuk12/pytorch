@@ -349,14 +349,7 @@ def gen_jit_dispatch(declarations, out, template_path):
                                              num_inputs=num_inputs,
                                              op_capture=op_capture,
                                              lvalues=lvalues)
-        if decl['name'] == 'arangeфів':
-            print('\n\n BOOBOO')
-            print('decl: ', decl)
-            print('call: ', call)
-            print('kw_assignments: ', kw_assignments)
-            print('num_inputs: ', num_inputs)
-            print('op_capture: ', op_capture)
-            print('lvalues: ', lvalues)
+
         return constructor
 
     # This function declares an order on declarations. This is necessary because
