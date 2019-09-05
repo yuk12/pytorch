@@ -291,13 +291,6 @@ def gen_jit_dispatch(declarations, out, template_path):
                     name=decl['name'], dtype=dtype, layout=layout,
                     device=device, pin_memory=pin_memory,
                     args_with_tensor_options=pack_arguments(args_with_tensor_options))
-                #args_with_tensor_options = args[:tensor_options_arg_index] + decl['name'] + ", dtype, layout, device, pin_memory" + args[(tensor_options_arg_index + 4):]
-                #print("--> ", args_with_tensor_options)
-                #args_with_tensor_options = args[:tensor_options_arg_index] + \
-                #    [decl['name']] + [', dtype, layout, device, pin_memory'] + args[(tensor_options_arg_index + 4):]
-
-                #return CALL_NAMESPACE_WITH_TENSOR_OPTIONS2.substitute(
-                #    name=decl['name'], args_with_tensor_options=pack_arguments(args))
             else:
                 return CALL_METHOD_WITH_TENSOR_OPTIONS.substitute(
                     name=decl['name'], dtype=dtype, layout=layout,

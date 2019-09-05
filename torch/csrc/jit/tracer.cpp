@@ -498,7 +498,7 @@ void addInputs(
     detail::genericAddInput(n, static_cast<int64_t>(*value));
   } else {
     Graph* g = n->owningGraph();
-    Value* none = g->insertNode(g->createNone(IntType::get()))->output();
+    Value* none = g->insertNode(g->createNone())->output();
     n->addInput(none);
   }
 }
@@ -511,7 +511,7 @@ void addInputs(
     detail::genericAddInput(n, value);
   } else {
     Graph* g = n->owningGraph();
-    Value* none = g->insertNode(g->createNone(IntType::get()))->output();
+    Value* none = g->insertNode(g->createNone())->output();
     n->addInput(none);
   }
 }

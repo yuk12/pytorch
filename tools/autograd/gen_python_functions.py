@@ -344,10 +344,6 @@ def create_python_bindings(python_functions, has_self, is_module=False):
         inputs = [arg for arg in declaration['arguments'] if not is_output(arg)]
         outputs = [arg for arg in declaration['arguments'] if is_output(arg)]
 
-        foo = declaration['name'] == '_empty_per_channel_affine_quantized_like'
-        if foo:
-            print("\n\n inputs-> ", inputs)
-        #has_tensor_options = any(arg['simple_type'] == 'TensorOptions' for arg in declaration['arguments'])
         a = any(arg['type'] == 'c10::optional<at::ScalarType>' for arg in inputs) and any(arg['type'] == 'c10::optional<at::Layout>' for arg in inputs) and any(arg['type'] == 'c10::optional<at::Device>' for arg in inputs) and any(arg['type'] == 'c10::optional<bool>' for arg in inputs)
         a1 = any(arg['type'] == 'c10::optional<ScalarType>' for arg in inputs) and any(arg['type'] == 'c10::optional<Layout>' for arg in inputs) and any(arg['type'] == 'c10::optional<Device>' for arg in inputs) and any(arg['type'] == 'c10::optional<bool>' for arg in inputs)
         b = any(arg['type'] == 'ScalarType' for arg in inputs) and any(arg['type'] == 'Layout' for arg in inputs) and any(arg['type'] == 'Device' for arg in inputs) and any(arg['type'] == 'bool' for arg in inputs)
@@ -444,9 +440,6 @@ def create_python_bindings(python_functions, has_self, is_module=False):
         # We always want to unpack when we have TensorOptions.
         unpack = has_tensor_options
 
-        if foo:
-            print("\n\n inputs2-> ", inputs)
-
         for arg in inputs:
             if arg['simple_type'] in ['Type', 'TensorOptions']:
                 continue
@@ -525,9 +518,6 @@ def create_python_bindings(python_functions, has_self, is_module=False):
                                     "\"Device device\" are supported".format(arg)))
 
         dtype = parsed_type_args[0] if parsed_type_args else None
-        if foo:
-            print("\n options: ", has_tensor_options, " ", all([dtype, device, layout, requires_grad]))
-            print("\n python_binding_arguments: ", python_binding_arguments)
 
         if has_tensor_options and all([dtype, device, layout, requires_grad]):
             body.append(TENSOR_OPTIONS.substitute({
@@ -637,31 +627,18 @@ def create_python_bindings(python_functions, has_self, is_module=False):
         # variable itself.)
         env['simple_return_type'] = simple_return_type
 
-        if declaration['name'] == 'ones':
-            print("\n\n\n DOBY2: \n", body)
-
         env = nested_dict(env, nested_dict(base_env, declaration))
         call_dispatch = PY_VARIABLE_CALL_DISPATCH.substitute(env)
-
-        if declaration['name'] == 'ones':
-            print("\n\n\n call_dispatch: \n", call_dispatch)
-            print("simple_return_type: ", simple_return_type)
 
         if requires_grad and not has_tensor_options:
             call_dispatch = PY_VARIABLE_SET_REQUIRES_GRAD.substitute(env, call_dispatch=call_dispatch,
                                                                      requires_grad=requires_grad)
-            if declaration['name'] == 'ones':
-                print("\n\n\n call_dispatch_grad: \n", call_dispatch)
-
         if simple_return_type == 'void':
             body.append('{call_dispatch};'.format(call_dispatch=call_dispatch))
             body.append('Py_RETURN_NONE;')
         else:
             body.append(PY_VARIABLE_WRAP.substitute(env, call_dispatch=call_dispatch))
         py_method_dispatch.append(PY_VARIABLE_DISPATCH.substitute(env))
-
-        if declaration['name'] == 'ones':
-            print("\n\n\n DOBY1: \n", body)
 
         return body
 
@@ -691,13 +668,7 @@ def create_python_bindings(python_functions, has_self, is_module=False):
         has_type_input_arg = False
         has_options_arg = False
 
-        foo = declaration['name'] == '_empty_per_channel_affine_quantized_like'
-        if foo:
-            print("\b argz1: ", declaration['arguments'])
         declaration['arguments'] = collapseTraceTO(declaration['arguments'])
-
-        if foo:
-            print("\b argz2: ", declaration['arguments'])
 
         for arg in declaration['arguments']:
             if arg.get('output', False):
@@ -711,11 +682,6 @@ def create_python_bindings(python_functions, has_self, is_module=False):
                 has_options_arg = True
             if arg['name'] == 'requires_grad':
                 raise ValueError("argument named requires_grad not supported")
-
-        if foo:
-            print("has_tensor_input_arg: ", has_tensor_input_arg)
-            print("has_type_input_arg: ", has_type_input_arg)
-            print("has_options_arg: ", has_options_arg)
 
         has_tensor_return = False
         for ret in declaration['returns']:
@@ -731,12 +697,6 @@ def create_python_bindings(python_functions, has_self, is_module=False):
         is_factory_function = has_tensor_return and not has_tensor_input_arg
         is_factory_or_like_or_new_function = has_tensor_return and (not has_tensor_input_arg or is_like_function or is_new_function)
         is_like_or_new_function_with_options = is_like_function_with_options or is_new_function_with_options
-
-        if foo:
-            print("is_like_function: ", is_like_function)
-            print("is_like_function_with_options: ", is_like_function_with_options)
-            print("is_factory_function: ", is_factory_function)
-            print("is_factory_or_like_function: ", is_factory_or_like_function)
 
         if (is_factory_function and not has_type_input_arg) or has_options_arg:
             default_type = get_type_default(declaration)
@@ -821,9 +781,7 @@ def create_python_bindings(python_functions, has_self, is_module=False):
                 declaration['namedtuple_fields'] += '{"' + x['field_name'] + '", ""}, '
         declaration['namedtuple_size'] = len(returns)
         declaration['namedtuple_return_type'] = '&type{}, '.format(next_index)
-        a = PY_RETURN_NAMEDTUPLE_DEF.substitute(declaration), next_index + 1
-
-        return a
+        return PY_RETURN_NAMEDTUPLE_DEF.substitute(declaration), next_index + 1
 
     def process_function(name, declarations):
         for declaration in declarations:
