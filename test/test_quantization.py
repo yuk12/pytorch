@@ -757,15 +757,15 @@ class ObserverTest(QuantizationTestCase):
         y = torch.tensor([4.0, 5.0, 5.0, 6.0, 7.0, 8.0])
         myobs(x)
         myobs(y)
-        self.assertEqual(myobs.min_val, -1.5)
-        self.assertEqual(myobs.max_val, 8.5)
-        self.assertEqual(myobs.histogram, [0., 0., 1., 2., 1., 2., 3., 2., 1., 1.])
+        self.assertEqual(myobs.min_val, 1.0)
+        self.assertEqual(myobs.max_val, 8.0)
+        self.assertEqual(myobs.histogram, [1., 2., 0., 1., 2., 2., 2., 1., 1., 1.])
         qparams = myobs.calculate_qparams()
         if qscheme == torch.per_tensor_symmetric:
-            ref_scale = 0.066666
+            ref_scale = 0.062745
             ref_zero_point = 0 if qdtype is torch.qint8 else 128
         else:
-            ref_scale = 0.0333333
+            ref_scale = 0.0313725
             ref_zero_point = -128 if qdtype is torch.qint8 else 0
         self.assertEqual(qparams[1].item(), ref_zero_point)
         self.assertAlmostEqual(qparams[0].item(), ref_scale, delta=1e-5)
