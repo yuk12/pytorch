@@ -969,8 +969,19 @@ def collapseTraceTO(args):
 
     return args
 
+def isTO(args):
+    return any(arg['type'] == 'c10::optional<ScalarType>' for arg in args) and any(arg['type'] == 'c10::optional<Layout>' for arg in args) and any(arg['type'] == 'c10::optional<Device>' for arg in args) and any(arg['type'] == 'c10::optional<bool>' for arg in args)
+
 def get_python_signature(declaration, include_out):
+    foo = declaration['name'] == 'cumprod'
+
+    if foo:
+        print("\n\n before: ", declaration['arguments'])
     declaration['arguments'] = collapseTraceTO(declaration['arguments'])
+
+    if foo:
+        print("\n\n after: ", declaration['arguments'])
+
     # Compute the Python function signature for argument parsing,
     # as specified in torch/csrc/utils/python_arg_parser.h.  WARNING:
     # this is NOT the same type signature as specified by PEP 484
@@ -1020,19 +1031,23 @@ def get_python_signature(declaration, include_out):
         # Skip `TensorOptions` in Python, as it is only used on the C++ side.
         if arg['simple_type'] == 'TensorOptions':
             continue
-        if arg['simple_type'] == 'ScalarType?':
+        if arg['simple_type'] == 'ScalarType?' and isTO(declaration['arguments']):
             continue
         if arg['simple_type'] == 'Device?':
             continue
         if arg['simple_type'] == 'Layout?':
             continue
-        if arg['simple_type'] == 'bool?':
+        if arg['simple_type'] == 'bool?' and isTO(declaration['arguments']):
             continue
         if arg.get('kwarg_only', False) and positional:
             py_formal_args.append('*')
             positional = False
         param = get_py_formal_arg(arg)
         py_formal_args.append(param)
+
+    if foo:
+        print("\n\n py_formal_args: ", py_formal_args)
+        print("\n\n isTO: ", isTO(declaration['arguments']))
 
     # add output arguments
     name = declaration['name']

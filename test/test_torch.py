@@ -2897,14 +2897,20 @@ class _TestTorchMixin(torchtest):
         for d in torch.testing.get_all_device_types():
             x = torch.rand(100, 100, device=d)
             res1 = torch.cumprod(x, 1)
+            print(res1)
             res2 = torch.Tensor().to(d)
+            print(res2)
+            print(d)
             torch.cumprod(x, 1, out=res2)
+            print("2")
             self.assertEqual(res1, res2)
 
+            print("3")
             a = torch.tensor([[True, False, True],
                               [False, False, False],
                               [True, True, True]], dtype=torch.bool, device=d)
             b = a.byte()
+            print("4")
             aRes = torch.cumprod(a, 0)
             bRes = torch.cumprod(b, 0)
             self.assertEqual(aRes, bRes)
