@@ -1,14 +1,16 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
-import torch
-import torch.nn as nn
+import warnings
 from abc import ABCMeta, abstractmethod
 from functools import partial
-import warnings
 
+import torch
+import torch.nn as nn
 from torch._jit_internal import Optional
 
-ABC = ABCMeta(str('ABC'), (object,), {})  # compatible with Python 2 *and* 3:
+
+ABC = ABCMeta(str("ABC"), (object,), {})  # compatible with Python 2 *and* 3:
+
 
 class ObserverBase(ABC, nn.Module):
     r"""Observer base Module
@@ -50,8 +52,10 @@ class ObserverBase(ABC, nn.Module):
         """
 
         if max_val is None or min_val is None:
-            warnings.warn("must run observer before calling calculate_qparams.\
-                                    Returning default scale and zero point ")
+            warnings.warn(
+                "must run observer before calling calculate_qparams.\
+                                    Returning default scale and zero point "
+            )
             return torch.tensor([1.0]), torch.tensor([0])
 
         assert min_val <= max_val, "min {} should be less than max {}".format(
@@ -62,7 +66,6 @@ class ObserverBase(ABC, nn.Module):
             qmin, qmax = -128, 127
         else:
             qmin, qmax = 0, 255
-
         max_val, min_val = float(max_val), float(min_val)
         min_val = min(0.0, min_val)
         max_val = max(0.0, max_val)
@@ -94,7 +97,10 @@ class MinMaxObserver(ObserverBase):
     calculate_qparams will calculate scale and zero_point
     """
 
-    __annotations__ = {'min_val' : Optional[torch.Tensor], 'max_val' : Optional[torch.Tensor]}
+    __annotations__ = {
+        "min_val": Optional[torch.Tensor],
+        "max_val": Optional[torch.Tensor],
+    }
 
     def __init__(self, **kwargs):
         super(MinMaxObserver, self).__init__(**kwargs)
@@ -120,13 +126,77 @@ class MinMaxObserver(ObserverBase):
 
     @torch.jit.export
     def extra_repr(self):
-        return 'min_val={}, max_val={}'.format(self.min_val, self.max_val)
+        return "min_val={}, max_val={}".format(self.min_val, self.max_val)
+
+
+class HistogramObserver(ObserverBase):
+    r"""
+    The module records the running histogram of tensor values along with
+    min/max values. calculate_qparams will calculate scale and zero_point
+    """
+
+    __annotations__ = {
+        "min_val": Optional[torch.Tensor],
+        "max_val": Optional[torch.Tensor],
+        "relaxed_min": torch.Tensor,
+        "relaxed_max": torch.Tensor,
+        "histogram": Optional[torch.Tensor],
+    }
+
+    def __init__(self, bins=2048, **kwargs):
+        super(HistogramObserver, self).__init__(**kwargs)
+        self.bins = bins
+        self.histogram = None
+        self.min_val = None
+        self.max_val = None
+        self.relaxed_min = torch.tensor([0])
+        self.relaxed_max = torch.tensor([0])
+
+    def forward(self, x):
+        min_val = self.min_val
+        max_val = self.max_val
+        histogram = self.histogram
+        if min_val is None or max_val is None or histogram is None:
+            min_val = torch.min(x)
+            max_val = torch.max(x)
+            range = max_val - min_val
+            self.relaxed_min = min_val - 0.5 * range
+            self.relaxed_max = max_val + 0.5 * range
+            self.histogram = torch.histc(x, self.bins, min=self.relaxed_min.item(), max=self.relaxed_max.item())
+            self.min_val = self.relaxed_min
+            self.max_val = self.relaxed_max
+        else:
+            new_histogram = torch.histc(x, self.bins, min=self.relaxed_min.item(), max=self.relaxed_max.item())
+            self.histogram = new_histogram + histogram
+
+    @torch.jit.export
+    def calculate_qparams(self):
+        min_val = self.min_val
+        max_val = self.max_val
+        histogram = self.histogram
+
+        if min_val is None or max_val is None or histogram is None:
+            return self._calculate_qparams(None, None)
+        else:
+            histogram_mask = torch.gt(histogram, 0).to(torch.int8)
+            c = torch.cumsum(histogram_mask, 0)
+            # Last non-zero bin
+            max_bin = torch.argmax(histogram_mask)
+            # Only one entry is non-zero, find it.
+            min_bin = torch.argmax(torch.eq(c, 1))
+            bin_width = (max_val - min_val) / histogram.size()[0]
+            new_min = min_val + min_bin * bin_width
+            new_max = min_val + (max_bin + 1) * bin_width
+            return self._calculate_qparams(new_min, new_max)
+
 
 def observer(observer_cls, **kwargs):
     return partial(observer_cls, **kwargs)
 
+
 def default_observer(**kwargs):
     return observer(MinMaxObserver, **kwargs)
+
 
 def default_weight_observer(**kwargs):
     kwargs.setdefault("dtype", torch.qint8)
