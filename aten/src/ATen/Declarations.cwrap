@@ -2049,10 +2049,8 @@
       - THTensor* mat2
       - arg: real beta
         default: AS_REAL(1)
-        kwarg_only: True
       - arg: real alpha
         default: AS_REAL(1)
-        kwarg_only: True
 ]]
 [[
   name: _th_addmm_
@@ -2068,10 +2066,8 @@
       - THTensor* mat2
       - arg: real beta
         default: AS_REAL(1)
-        kwarg_only: True
       - arg: real alpha
         default: AS_REAL(1)
-        kwarg_only: True
 ]]
 [[
   name: _th_addmv
@@ -2088,10 +2084,8 @@
     - THTensor* vec
     - arg: real beta
       default: AS_REAL(1)
-      kwarg_only: True
     - arg: real alpha
       default: AS_REAL(1)
-      kwarg_only: True
 ]]
 [[
   name: _th_addmv_
@@ -2106,10 +2100,8 @@
     - THTensor* vec
     - arg: real beta
       default: AS_REAL(1)
-      kwarg_only: True
     - arg: real alpha
       default: AS_REAL(1)
-      kwarg_only: True
 ]]
 [[
   name: _th_addr
@@ -2127,10 +2119,8 @@
     - THTensor* vec2
     - arg: real beta
       default: AS_REAL(1)
-      kwarg_only: True
     - arg: real alpha
       default: AS_REAL(1)
-      kwarg_only: True
 ]]
 [[
   name: _th_addr_
@@ -2145,10 +2135,8 @@
     - THTensor* vec2
     - arg: real beta
       default: AS_REAL(1)
-      kwarg_only: True
     - arg: real alpha
       default: AS_REAL(1)
-      kwarg_only: True
 ]]
 [[
   name: _th_ger
@@ -2241,10 +2229,8 @@
     - THTensor* batch2
     - arg: real beta
       default: AS_REAL(1)
-      kwarg_only: True
     - arg: real alpha
       default: AS_REAL(1)
-      kwarg_only: True
 ]]
 [[
   name: _th_addbmm_
@@ -2258,10 +2244,8 @@
     - THTensor* batch2
     - arg: real beta
       default: AS_REAL(1)
-      kwarg_only: True
     - arg: real alpha
       default: AS_REAL(1)
-      kwarg_only: True
 ]]
 [[
   name: _th_baddbmm
@@ -2281,10 +2265,8 @@
     - THTensor* batch2
     - arg: real beta
       default: AS_REAL(1)
-      kwarg_only: True
     - arg: real alpha
       default: AS_REAL(1)
-      kwarg_only: True
 ]]
 [[
   name: _th_gels
