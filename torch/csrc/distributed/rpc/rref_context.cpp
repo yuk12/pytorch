@@ -1,5 +1,7 @@
 #include <torch/csrc/distributed/rpc/rref_context.h>
 
+#include <torch/csrc/distributed/rpc/script_rref_proto.h>
+
 namespace torch {
 namespace distributed {
 namespace rpc {
@@ -27,6 +29,10 @@ worker_id_t RRefContext::getWorkerId() const {
   return agent_->getWorkerId().id_;
 }
 
+const std::string& RRefContext::getWorkerName() const {
+  return agent_->getWorkerId().name_;
+}
+
 RRefId RRefContext::genRRefId() {
   return RRefId(getWorkerId(), nextLocalId_++);
 }
@@ -35,35 +41,119 @@ const std::shared_ptr<RpcAgent>& RRefContext::agent() const {
   return agent_;
 }
 
-void RRefContext::addFork(const at::IValue& value) {
+RRefForkData RRefContext::forkTo(
+    const std::shared_ptr<RRef>& rref,
+    worker_id_t forkDst) {
+  auto forkRequest = rref->fork();
+  if (rref->owner() != forkDst) {
+    // if fork destination if not owner, the forked UserRRef needs to be tracked
+    // properly
+    if (rref->isOwner()) {
+      // fork from owner
+      agent_->send(
+          agent_->getWorkerId(forkDst),
+          acceptUserRRef(forkRequest.rrefId_, forkRequest.forkId_));
+    } else {
+      // fork from user, rref cannot be destructed until the fork request is
+      // accepted by the owner
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        pendingForkRequests_[forkRequest.forkId_] = rref;
+      }
+      // notify owner
+      agent_->send(
+          agent_->getWorkerId(rref->owner()),
+          ScriptForkNotify(forkRequest.toIValue(), forkDst).toMessage());
+    }
+  }
+  return forkRequest;
+}
+
+Message RRefContext::acceptUserRRef(const RRefId& rrefId, const ForkId& forkId) {
+  addForkOfOwner(rrefId, forkId);
+  return ScriptUserAccept(forkId.toIValue()).toMessage();
+}
+
+Message RRefContext::acceptForkRequest(const IValue& value, worker_id_t forkDst) {
+  auto forkRequest = RRefForkData::fromIValue(value);
+  auto& rrefId = forkRequest.rrefId_;
+  auto& forkId = forkRequest.forkId_;
+  agent_->send(
+      agent_->getWorkerId(forkDst),
+      acceptUserRRef(rrefId, forkId));
+  // notify fork caller UserRRef
+  return ScriptForkAccept(forkId.toIValue()).toMessage();
+}
+
+void RRefContext::finishForkRequest(const IValue& value) {
+  auto forkRequest = RRefForkData::fromIValue(value);
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto iter = pendingForkRequests_.find(forkRequest.forkId_);
+    AT_ASSERT(
+        iter != pendingForkRequests_.end(),
+        "Cannot finish a non-exist fork request.");
+    pendingForkRequests_.erase(iter);
+  }
+}
+
+void RRefContext::finishUserRRef(const IValue& value) {
+  auto forkId = ForkId::fromIValue(value);
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    TORCH_CHECK(
+        pendingAcceptedUsers_.find(forkId) == pendingAcceptedUsers_.end(),
+        "Inconsistent state, attempt to accept the same UserRRef twice.")
+
+    auto iter = pendingUsers_.find(forkId);
+    if (iter != pendingUsers_.end()) {
+      // UserRRef created before receiving RREF_USER_ACCEPT message
+      pendingUsers_.erase(iter);
+    } else {
+      // RREF_USER_ACCEPT arrives before UserRRef is created, remove it
+      pendingAcceptedUsers_.insert(forkId);
+    }
+  }
+}
+
+void RRefContext::addForkOfOwner(const at::IValue& value) {
   auto rfd = RRefForkData::fromIValue(value);
   AT_ASSERT(
       rfd.ownerId_ == getWorkerId(),
       "RRef user should never receive fork notification.");
-  std::lock_guard<std::mutex> lock(mutex_);
-  auto& rrefForks = forks_[rfd.rrefId_];
-  AT_ASSERT(
-      rrefForks.find(rfd.forkId_) == rrefForks.end(),
-      "Got fork notification twice on the same RRef ",
-      rfd.rrefId_);
-  rrefForks.insert(rfd.forkId_);
+  addForkOfOwner(rfd.rrefId_, rfd.forkId_);
 }
 
-void RRefContext::delFork(const at::IValue& value) {
+void RRefContext::addForkOfOwner(const RRefId& rrefId, const ForkId& forkId) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  auto& rrefForks = forks_[rrefId];
+  AT_ASSERT(
+      rrefForks.find(forkId) == rrefForks.end(),
+      "Got fork notification twice on the same RRef ",
+      forkId);
+  rrefForks.insert(forkId);
+}
+
+void RRefContext::delForkOfOwner(const at::IValue& value) {
   auto rfd = RRefForkData::fromIValue(value);
   AT_ASSERT(
       rfd.ownerId_ == getWorkerId(),
       "RRef user should never receive delete notification.");
+  delForkOfOwner(rfd.rrefId_, rfd.forkId_);
+}
+
+void RRefContext::delForkOfOwner(const RRefId& rrefId, const ForkId& forkId) {
   std::lock_guard<std::mutex> lock(mutex_);
-  auto& rrefForks = forks_[rfd.rrefId_];
+  auto& rrefForks = forks_[rrefId];
   AT_ASSERT(
-      rrefForks.find(rfd.forkId_) != rrefForks.end(),
+      rrefForks.find(forkId) != rrefForks.end(),
       "Attempt to delete a non-exist fork ",
-      rfd.forkId_);
-  rrefForks.erase(rfd.forkId_);
+      forkId);
+  rrefForks.erase(rrefId);
+
   if (rrefForks.empty()) {
-    owners_.erase(rfd.rrefId_);
-    forks_.erase(rfd.rrefId_);
+    owners_.erase(rrefId);
+    forks_.erase(rrefId);
   }
 }
 

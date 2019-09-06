@@ -1,5 +1,16 @@
 #include <torch/csrc/distributed/rpc/python_functions.h>
 
+#include <torch/csrc/distributed/rpc/message.h>
+#include <torch/csrc/distributed/rpc/python_remote_call.h>
+#include <torch/csrc/distributed/rpc/python_rpc_handler.h>
+#include <torch/csrc/distributed/rpc/rref.h>
+#include <torch/csrc/distributed/rpc/rref_context.h>
+#include <torch/csrc/distributed/rpc/script_call.h>
+#include <torch/csrc/distributed/rpc/script_remote_call.h>
+#include <torch/csrc/distributed/rpc/script_ret.h>
+
+#include <torch/csrc/jit/pybind_utils.h>
+
 namespace torch {
 namespace distributed {
 namespace rpc {
@@ -53,6 +64,7 @@ py::object toPyObj(const Message& message) {
       ScriptRet ret = ScriptRet::fromMessage(message);
       Stack stack;
       stack.push_back(ret.value());
+      AutoGIL ag;
       return torch::jit::createPyObjectForStack(std::move(stack));
     }
     case MessageType::PYTHON_RET: {
@@ -79,7 +91,7 @@ std::shared_ptr<FutureMessage> pyRpcBuiltin(
   return agent.send(dst, ScriptCall(op, std::move(stack)).toMessage());
 }
 
-std::shared_ptr<RRef> pyRemoteBuiltin(
+PyRRef pyRemoteBuiltin(
     RpcAgent& agent,
     const WorkerId& dst,
     const std::string& opName,
@@ -89,16 +101,29 @@ std::shared_ptr<RRef> pyRemoteBuiltin(
   auto op = matchBuiltinOp(opName, args, kwargs, stack);
 
   auto& ctx = RRefContext::getInstance();
-  auto userRRef = ctx->createUserRRef(dst.id_);
-  agent.send(
-      dst,
-      ScriptRemoteCall(
-          op,
-          std::move(stack),
-          userRRef->id().toIValue(),
-          userRRef->forkId().toIValue())
-          .toMessage());
-  return userRRef;
+  if (ctx->getWorkerId() == dst.id_) {
+    auto ownerRRef = ctx->createOwnerRRef<IValue>(dst.id_);
+    agent.send(
+        dst,
+        ScriptRemoteCall(
+            op,
+            std::move(stack),
+            ownerRRef->id().toIValue(),
+            ownerRRef->id().toIValue())
+            .toMessage());
+    return PyRRef(ownerRRef);
+  } else {
+    auto userRRef = ctx->createUserRRef<IValue>(dst.id_);
+    agent.send(
+        dst,
+        ScriptRemoteCall(
+            op,
+            std::move(stack),
+            userRRef->id().toIValue(),
+            userRRef->forkId().toIValue())
+            .toMessage());
+    return PyRRef(userRRef);
+  }
 }
 
 std::shared_ptr<FutureMessage> pyRpcPythonUdf(
@@ -112,6 +137,34 @@ std::shared_ptr<FutureMessage> pyRpcPythonUdf(
       dst,
       Message(
           std::move(data), std::move(tensor_table), MessageType::PYTHON_CALL));
+}
+
+PyRRef pyRemotePythonUdf(
+    RpcAgent& agent,
+    const WorkerId& dst,
+    const std::string& pickledPythonUDF) {
+  auto& ctx = RRefContext::getInstance();
+  if (ctx->getWorkerId() == dst.id_) {
+    auto ownerRRef = ctx->createOwnerRRef<py::object>(dst.id_);
+    agent.send(
+        dst,
+        PythonRemoteCall(
+            pickledPythonUDF,
+            ownerRRef->id().toIValue(),
+            ownerRRef->id().toIValue())
+            .toMessage());
+    return PyRRef(ownerRRef);
+  } else {
+    auto userRRef = ctx->createUserRRef<py::object>(dst.id_);
+    agent.send(
+        dst,
+        PythonRemoteCall(
+            pickledPythonUDF,
+            userRRef->id().toIValue(),
+            userRRef->forkId().toIValue())
+            .toMessage());
+    return PyRRef(userRRef);
+  }
 }
 
 } // namespace rpc

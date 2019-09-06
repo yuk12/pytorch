@@ -3,6 +3,7 @@
 #include <torch/csrc/distributed/rpc/functions.h>
 #include <torch/csrc/distributed/rpc/future_message.h>
 #include <torch/csrc/distributed/rpc/process_group_agent.h>
+#include <torch/csrc/distributed/rpc/py_rref.h>
 #include <torch/csrc/distributed/rpc/python_functions.h>
 #include <torch/csrc/distributed/rpc/rpc_agent.h>
 #include <torch/csrc/distributed/rpc/rref.h>
@@ -43,13 +44,31 @@ PyObject* rpc_init(PyObject* /* unused */) {
               &RpcAgent::sync,
               py::call_guard<py::gil_scoped_release>());
 
-  auto rref =
-      shared_ptr_class_<RRef>(module, "RRef")
-          .def("owner", &RRef::owner, py::call_guard<py::gil_scoped_release>())
+  auto pyRRef =
+      shared_ptr_class_<PyRRef>(module, "RRef")
+          .def(
+              "is_owner",
+              &PyRRef::isOwner,
+              py::call_guard<py::gil_scoped_release>())
+          .def(
+              "owner", &PyRRef::owner, py::call_guard<py::gil_scoped_release>())
           .def(
               "to_here",
-              [&](RRef& rref) { return torch::jit::toPyObject(rref.toHere()); },
-              py::call_guard<py::gil_scoped_release>());
+              &PyRRef::toHere,
+              py::call_guard<py::gil_scoped_release>())
+          .def(
+              "local_value",
+              &PyRRef::localValue,
+              py::call_guard<py::gil_scoped_release>())
+          .def(py::pickle(
+              [](const PyRRef& self) {
+                // __getstate__
+                return self.pickle();
+              },
+              [](py::tuple t) { // NOLINT
+                // __setstate__
+                return PyRRef::unpickle(t);
+              }));
 
   auto futureMessage =
       shared_ptr_class_<FutureMessage>(module, "FutureMessage")
@@ -92,6 +111,10 @@ PyObject* rpc_init(PyObject* /* unused */) {
     RRefContext::initInstance(std::move(agent));
   });
 
+  module.def("set_current_rpc_dst", [](worker_id_t dst) {
+    PyRRef::setCurrentDst(dst);
+  });
+
   module.def(
       "invoke_rpc_builtin",
       [](RpcAgent& agent,
@@ -118,6 +141,14 @@ PyObject* rpc_init(PyObject* /* unused */) {
          const py::args& args,
          const py::kwargs& kwargs) {
         return pyRemoteBuiltin(agent, dst, opName, args, kwargs);
+      });
+
+  module.def(
+      "invoke_remote_python_udf",
+      [](RpcAgent& agent,
+         const WorkerId& dst,
+         const std::string& pickledPythonUDF) {
+        return pyRemotePythonUdf(agent, dst, pickledPythonUDF);
       });
 
   Py_RETURN_TRUE;

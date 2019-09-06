@@ -16,6 +16,17 @@ def my_function(a, b, c):
     return a + b + c
 
 
+def my_rref_function(rref_a, rref_b):
+    def get_value(rref):
+        if rref.is_owner():
+            return rref.local_value()
+        else:
+            return rref.to_here()
+
+    a = get_value(rref_a)
+    b = get_value(rref_b)
+    return a + b
+
 # it is used to test python user defined function over rpc
 def no_result():
     print("do nothing")
@@ -393,8 +404,9 @@ class RpcTest(MultiProcessTestCase):
                            args=(torch.ones(n, n), torch.ones(n, n)))
         self.assertEqual(rref.to_here(), torch.ones(n, n) * 2)
 
-    @_wrap_with_rpc
-    def test_multi_builtin_remote_ret(self):
+    def _test_multi_remote_call(
+        self, fn, args_fn=lambda x: (), kwargs_fn=lambda x: {}
+    ):
         m = 10
         n = self.rank + 1
         dst_rank = n % self.world_size
@@ -404,13 +416,69 @@ class RpcTest(MultiProcessTestCase):
             n = n + i
             rrefs.append(dist.remote(
                 'worker{}'.format(dst_rank),
-                torch.add,
-                args=(torch.ones(n, n), torch.ones(n, n))
+                fn,
+                args=args_fn(n),
+                kwargs=kwargs_fn(n)
             ))
-            expected.append(torch.ones(n, n) * 2)
+            expected.append(fn(*args_fn(n), **kwargs_fn(n)))
 
         for i in range(m):
             self.assertEqual(rrefs[i].to_here(), expected[i])
+
+    @_wrap_with_rpc
+    def test_multi_builtin_remote_ret(self):
+        def args_fn(n):
+            return (torch.ones(n, n), torch.ones(n, n))
+        self._test_multi_remote_call(torch.add, args_fn=args_fn)
+
+
+    @_wrap_with_rpc
+    def test_py_udf_remote(self):
+        n = self.rank + 1
+        dst_rank = n % self.world_size
+        rref = dist.remote(
+            "worker{}".format(dst_rank),
+            my_function,
+            kwargs={"a": n, "b": n + 1, "c": n + 2},
+        )
+        self.assertEqual(rref.to_here(), my_function(n, n + 1, n + 2))
+
+    @_wrap_with_rpc
+    def test_multi_py_udf_remote(self):
+        def kwargs_fn(n):
+            return {
+                "a" : torch.ones(n, n),
+                "b" : torch.ones(n, n),
+                "c" : torch.ones(n, n),
+            }
+        self._test_multi_remote_call(my_function, kwargs_fn=kwargs_fn)
+
+    @_wrap_with_rpc
+    def test_py_rref_args(self):
+        n = self.rank + 1
+        dst_rank = n % self.world_size
+        for i in range(20):
+            rref_a = dist.remote('worker{}'.format(dst_rank), torch.add,
+                                 args=(torch.ones(n, n), 2))
+            rref_b = dist.remote('worker{}'.format(dst_rank), torch.add,
+                                 args=(torch.ones(n, n), i))
+            rref_c = dist.remote('worker{}'.format(dst_rank), my_rref_function,
+                                 args=(rref_a, rref_b))
+            self.assertEqual(rref_c.to_here(), torch.ones(n, n) * 4 + i)
+
+    @_wrap_with_rpc
+    def test_py_rref_args_user_share(self):
+        n = self.rank + 1
+        owner_rank = n % self.world_size
+        user_rank = (n + 1) % self.world_size
+        for i in range(20):
+            rref_a = dist.remote('worker{}'.format(owner_rank), torch.add,
+                                 args=(torch.ones(n, n), 2))
+            rref_b = dist.remote('worker{}'.format(owner_rank), torch.add,
+                                 args=(torch.ones(n, n), i))
+            rref_c = dist.remote('worker{}'.format(user_rank), my_rref_function,
+                                 args=(rref_a, rref_b))
+            self.assertEqual(rref_c.to_here(), torch.ones(n, n) * 4 + i)
 
 
 if __name__ == '__main__':

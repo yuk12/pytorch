@@ -1,30 +1,33 @@
-#include <torch/csrc/distributed/rpc/script_remote_call.h>
+#include <torch/csrc/distributed/rpc/python_remote_call.h>
 #include <torch/csrc/jit/pickle.h>
 
 namespace torch {
 namespace distributed {
 namespace rpc {
 
-ScriptRemoteCall::ScriptRemoteCall(
-    std::shared_ptr<Operator> op,
-    std::vector<at::IValue>&& args,
+PythonRemoteCall::PythonRemoteCall(
+    std::string pickledPythonUDF,
     at::IValue retRRefId,
     at::IValue retForkId)
-    : ScriptCall(std::move(op), std::move(args)),
+    : pickledPythonUDF_(std::move(pickledPythonUDF)),
       retRRefId_(std::move(retRRefId)),
       retForkId_(std::move(retForkId)) {}
 
-const at::IValue& ScriptRemoteCall::retRRefId() {
+const std::string& PythonRemoteCall::udf() {
+  return pickledPythonUDF_;
+}
+
+at::IValue PythonRemoteCall::retRRefId() {
   return retRRefId_;
 }
 
-const at::IValue& ScriptRemoteCall::retForkId() {
+at::IValue PythonRemoteCall::retForkId() {
   return retForkId_;
 }
 
-Message ScriptRemoteCall::toMessage() const {
+Message PythonRemoteCall::toMessage() const {
   std::vector<IValue> ivalues;
-  ScriptCall::toIValues(ivalues);
+  ivalues.emplace_back(pickledPythonUDF_);
   ivalues.emplace_back(retRRefId_);
   ivalues.emplace_back(retForkId_);
 
@@ -35,10 +38,10 @@ Message ScriptRemoteCall::toMessage() const {
   return Message(
       std::move(payload),
       std::move(tensor_table),
-      MessageType::SCRIPT_REMOTE_CALL);
+      MessageType::PYTHON_REMOTE_CALL);
 }
 
-ScriptRemoteCall ScriptRemoteCall::fromMessage(const Message& message) {
+PythonRemoteCall PythonRemoteCall::fromMessage(const Message& message) {
   auto payload = static_cast<const char*>(message.payload().data());
   auto payload_size = message.payload().size();
 
@@ -51,10 +54,10 @@ ScriptRemoteCall ScriptRemoteCall::fromMessage(const Message& message) {
   values.pop_back();
   auto retRRefId = std::move(values.back());
   values.pop_back();
+  auto& pickledPythonUDF = values.back().toStringRef();
 
-  auto op = ScriptCall::fromIValues(values);
-  return ScriptRemoteCall(
-      op, std::move(values), std::move(retRRefId), std::move(retForkId));
+  return PythonRemoteCall(
+      pickledPythonUDF, std::move(retRRefId), std::move(retForkId));
 }
 
 } // namespace rpc
