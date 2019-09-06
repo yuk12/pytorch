@@ -40,7 +40,11 @@ enum class TensorTypeId : uint8_t {
   ComplexCPUTensorId, // PyTorch only
   ComplexCUDATensorId, // PyTorch only
 
-  // VariableTensorId,  // upcoming!
+  // WARNING! If you add more non-backend-like tensor ids (like tracing or
+  // profiling) here, you need to also adjust legacyExtractTypeId
+  // in c10/core/TensorTypeId.h to mask them out.
+
+  VariableTensorId,
 
   NumTensorIds, // Sentinel
 };
