@@ -11,6 +11,8 @@
 // Distributed under the Boost Software License, Version 1.0.
 //    (See http://www.boost.org/LICENSE_1_0.txt)
 
+// Modified to maintain insertion and deletion order through a doubly-linked list
+
 #pragma once
 
 #include <cstdint>
@@ -35,6 +37,7 @@
 
 namespace ska_ordered
 {
+
 struct prime_number_hash_policy;
 struct power_of_two_hash_policy;
 struct fibonacci_hash_policy;
@@ -209,6 +212,8 @@ struct sherwood_v3_entry
         distance_from_desired = -1;
     }
 
+    sherwood_v3_entry<T> * prev = nullptr;
+    sherwood_v3_entry<T> * next = nullptr;
     int8_t distance_from_desired = -1;
     static constexpr int8_t special_end_value = 0;
     union { T value; };
@@ -484,11 +489,7 @@ public:
 
         templated_iterator & operator++()
         {
-            do
-            {
-                ++current;
-            }
-            while(current->is_empty());
+            current = current->next;
             return *this;
         }
         templated_iterator operator++(int)
@@ -520,19 +521,11 @@ public:
 
     iterator begin()
     {
-        for (EntryPointer it = entries;; ++it)
-        {
-            if (it->has_value())
-                return { it };
-        }
+        return sentinel->next;
     }
     const_iterator begin() const
     {
-        for (EntryPointer it = entries;; ++it)
-        {
-            if (it->has_value())
-                return { it };
-        }
+        return sentinel->next;
     }
     const_iterator cbegin() const
     {
@@ -540,11 +533,11 @@ public:
     }
     iterator end()
     {
-        return { entries + static_cast<ptrdiff_t>(num_slots_minus_one + max_lookups) };
+        return sentinel;
     }
     const_iterator end() const
     {
-        return { entries + static_cast<ptrdiff_t>(num_slots_minus_one + max_lookups) };
+        return sentinel;
     }
     const_iterator cend() const
     {
@@ -595,6 +588,7 @@ public:
         int8_t distance_from_desired = 0;
         for (; current_entry->distance_from_desired >= distance_from_desired; ++current_entry, ++distance_from_desired)
         {
+            // insertion of an existing key does not change ordering
             if (compares_equal(key, current_entry->value))
                 return { { current_entry }, false };
         }
@@ -660,14 +654,18 @@ public:
         int8_t old_max_lookups = max_lookups;
         max_lookups = new_max_lookups;
         num_elements = 0;
-        for (EntryPointer it = new_buckets, end = it + static_cast<ptrdiff_t>(num_buckets + old_max_lookups); it != end; ++it)
-        {
-            if (it->has_value())
-            {
-                emplace(std::move(it->value));
-                it->destroy_value();
-            }
+
+        auto start = sentinel->next;
+        // point sentinel to itself;
+        reset_list();
+        // reinsert list
+        for (EntryPointer it = start; it != sentinel;) {
+          auto next = it->next;
+          emplace(std::move(it->value));
+          it->destroy_value();
+          it = next;
         }
+
         deallocate_data(new_buckets, num_buckets, old_max_lookups);
     }
 
@@ -678,6 +676,12 @@ public:
             rehash(required_buckets);
     }
 
+    void replace_linked_list_position(EntryPointer to_be_replaced, EntryPointer new_node) {
+      remove_from_list(new_node);
+      insert_after(new_node, to_be_replaced->prev);
+      remove_from_list(to_be_replaced);
+    }
+
     // the return value is a type that can be converted to an iterator
     // the reason for doing this is that it's not free to find the
     // iterator pointing at the next element. if you care about the
@@ -685,11 +689,17 @@ public:
     convertible_to_iterator erase(const_iterator to_erase)
     {
         EntryPointer current = to_erase.current;
+        remove_from_list(current);
         current->destroy_value();
         --num_elements;
+
         for (EntryPointer next = current + ptrdiff_t(1); !next->is_at_desired_position(); ++current, ++next)
         {
+            // if an entry is being removed, and there are other entries with the
+            // same hash, the other entries get moved to their desired position by
+            // reinserting.
             current->emplace(next->distance_from_desired - 1, std::move(next->value));
+            replace_linked_list_position(next, current);
             next->destroy_value();
         }
         return { to_erase.current };
@@ -697,29 +707,40 @@ public:
 
     iterator erase(const_iterator begin_it, const_iterator end_it)
     {
-        if (begin_it == end_it)
-            return { begin_it.current };
-        for (EntryPointer it = begin_it.current, end = end_it.current; it != end; ++it)
-        {
-            if (it->has_value())
+        // whenever an entry is removed and there are other entries with the same
+        // hash, the other entries must get moved to their desired position.
+        // any reference to a moved entry is invalidated.
+        // here, we iterate through the range, and make sure that we update
+        // the pointer to our next entry in the list or the end of the iterator
+        // when it is invalidated.
+
+        auto curr_iter = begin_it.current;
+        auto next_iter = curr_iter->next;
+        auto end_iter = end_it.current;
+
+        while (curr_iter != end_iter) {
+          remove_from_list(curr_iter);
+          curr_iter->destroy_value();
+          --num_elements;
+
+          for (EntryPointer next_hash_slot = curr_iter + ptrdiff_t(1); !next_hash_slot->is_at_desired_position(); ++curr_iter, ++next_hash_slot)
             {
-                it->destroy_value();
-                --num_elements;
-            }
+              curr_iter->emplace(next_hash_slot->distance_from_desired - 1, std::move(next_hash_slot->value));
+              replace_linked_list_position(next_hash_slot, curr_iter);
+              next_hash_slot->destroy_value();
+
+              // we are invalidating next_iter or end_iter
+              if (next_hash_slot == end_iter) {
+                end_iter = curr_iter;
+              } else if (next_hash_slot == next_iter) {
+                next_iter = curr_iter;
+              }
+          }
+          curr_iter = next_iter;
+          next_iter = curr_iter->next;
         }
-        if (end_it == this->end())
-            return this->end();
-        ptrdiff_t num_to_move = std::min(static_cast<ptrdiff_t>(end_it.current->distance_from_desired), end_it.current - begin_it.current);
-        EntryPointer to_return = end_it.current - num_to_move;
-        for (EntryPointer it = end_it.current; !it->is_at_desired_position();)
-        {
-            EntryPointer target = it - num_to_move;
-            target->emplace(it->distance_from_desired - num_to_move, std::move(it->value));
-            it->destroy_value();
-            ++it;
-            num_to_move = std::min(static_cast<ptrdiff_t>(it->distance_from_desired), num_to_move);
-        }
-        return { to_return };
+
+        return { end_iter };
     }
 
     uint64_t erase(const FindKey & key)
@@ -741,6 +762,7 @@ public:
             if (it->has_value())
                 it->destroy_value();
         }
+        reset_list();
         num_elements = 0;
     }
 
@@ -808,6 +830,17 @@ private:
     int8_t max_lookups = detailv3::min_lookups - 1;
     float _max_load_factor = 0.5f;
     uint64_t num_elements = 0;
+    sherwood_v3_entry<T> sentinel_val;
+
+    // head of doubly linked list
+    EntryPointer sentinel = initSentinel();
+
+
+    EntryPointer initSentinel() {
+      sentinel = &sentinel_val;
+      reset_list();
+      return sentinel;
+    }
 
     EntryPointer empty_default_table()
     {
@@ -845,6 +878,30 @@ private:
         swap(_max_load_factor, other._max_load_factor);
     }
 
+    void reset_list() {
+      sentinel->next = sentinel;
+      sentinel->prev = sentinel;
+    }
+
+    void remove_from_list(EntryPointer elem) {
+      elem->prev->next = elem->next;
+      elem->next->prev = elem->prev;
+    }
+
+    void insert_after(EntryPointer new_elem, EntryPointer prev) {
+      auto next = prev->next;
+
+      prev->next = new_elem;
+      new_elem->prev = prev;
+
+      new_elem->next = next;
+      next->prev = new_elem;
+    }
+
+    void append_to_list(EntryPointer new_tail) {
+      insert_after(new_tail, sentinel->prev);
+    }
+
     template<typename Key, typename... Args>
     SKA_NOINLINE(std::pair<iterator, bool>) emplace_new_key(int8_t distance_from_desired, EntryPointer current_entry, Key && key, Args &&... args)
     {
@@ -858,6 +915,7 @@ private:
         {
             current_entry->emplace(distance_from_desired, std::forward<Key>(key), std::forward<Args>(args)...);
             ++num_elements;
+            append_to_list(current_entry);
             return { { current_entry }, true };
         }
         value_type to_insert(std::forward<Key>(key), std::forward<Args>(args)...);
@@ -869,6 +927,7 @@ private:
             if (current_entry->is_empty())
             {
                 current_entry->emplace(distance_from_desired, std::move(to_insert));
+                append_to_list(current_entry);
                 ++num_elements;
                 return { result, true };
             }
@@ -1318,7 +1377,7 @@ private:
 };
 
 template<typename K, typename V, typename H = std::hash<K>, typename E = std::equal_to<K>, typename A = std::allocator<std::pair<K, V> > >
-class flat_hash_map
+class order_preserving_flat_hash_map
         : public detailv3::sherwood_v3_table
         <
             std::pair<K, V>,
@@ -1348,7 +1407,7 @@ public:
     using mapped_type = V;
 
     using Table::Table;
-    flat_hash_map()
+    order_preserving_flat_hash_map()
     {
     }
 
@@ -1407,7 +1466,7 @@ public:
         return insert_or_assign(std::move(key), std::forward<M>(m)).first;
     }
 
-    friend bool operator==(const flat_hash_map & lhs, const flat_hash_map & rhs)
+    friend bool operator==(const order_preserving_flat_hash_map & lhs, const order_preserving_flat_hash_map & rhs)
     {
         if (lhs.size() != rhs.size())
             return false;
@@ -1421,7 +1480,7 @@ public:
         }
         return true;
     }
-    friend bool operator!=(const flat_hash_map & lhs, const flat_hash_map & rhs)
+    friend bool operator!=(const order_preserving_flat_hash_map & lhs, const order_preserving_flat_hash_map & rhs)
     {
         return !(lhs == rhs);
     }
@@ -1516,7 +1575,7 @@ struct power_of_two_std_hash : std::hash<T>
     typedef ska_ordered::power_of_two_hash_policy hash_policy;
 };
 
-} // end namespace ska_ordered
+} // end namespace ska
 
 #ifndef _MSC_VER
 #pragma GCC diagnostic pop
