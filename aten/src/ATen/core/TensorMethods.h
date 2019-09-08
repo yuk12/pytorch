@@ -1575,8 +1575,12 @@ inline Tensor Tensor::logsumexp(IntArrayRef dim, bool keepdim) const {
 #ifdef USE_STATIC_DISPATCH
     return TypeDefault::logsumexp(const_cast<Tensor&>(*this), dim, keepdim);
 #else
-    static auto table = globalATenDispatch().getOpTable("aten::logsumexp(Tensor self, int[1] dim, bool keepdim=False) -> Tensor");
-    return table->getOp<Tensor (const Tensor &, IntArrayRef, bool)>(tensorTypeIdToBackend(type_id()), is_variable())(const_cast<Tensor&>(*this), dim, keepdim);
+    static c10::OperatorHandle op = c10::Dispatcher::singleton().findSchema({"aten::logsumexp", ""}).value();
+    if (is_variable()) {
+        return c10::Dispatcher::singleton().callUnboxedAutogradKernel<Tensor, const Tensor &, IntArrayRef, bool>(op, const_cast<Tensor&>(*this), dim, keepdim);
+    } else {
+        return c10::Dispatcher::singleton().lookup(op, type_id()).callUnboxed<Tensor, const Tensor &, IntArrayRef, bool>(const_cast<Tensor&>(*this), dim, keepdim);
+    }
 #endif
 }
 #ifdef BUILD_NAMEDTENSOR
@@ -1629,8 +1633,12 @@ inline Tensor Tensor::max_values(IntArrayRef dim, bool keepdim) const {
 #ifdef USE_STATIC_DISPATCH
     return TypeDefault::max_values(const_cast<Tensor&>(*this), dim, keepdim);
 #else
-    static auto table = globalATenDispatch().getOpTable("aten::max_values(Tensor self, int[1] dim, bool keepdim=False) -> Tensor");
-    return table->getOp<Tensor (const Tensor &, IntArrayRef, bool)>(tensorTypeIdToBackend(type_id()), is_variable())(const_cast<Tensor&>(*this), dim, keepdim);
+    static c10::OperatorHandle op = c10::Dispatcher::singleton().findSchema({"aten::max_values", ""}).value();
+    if (is_variable()) {
+        return c10::Dispatcher::singleton().callUnboxedAutogradKernel<Tensor, const Tensor &, IntArrayRef, bool>(op, const_cast<Tensor&>(*this), dim, keepdim);
+    } else {
+        return c10::Dispatcher::singleton().lookup(op, type_id()).callUnboxed<Tensor, const Tensor &, IntArrayRef, bool>(const_cast<Tensor&>(*this), dim, keepdim);
+    }
 #endif
 }
 #ifdef BUILD_NAMEDTENSOR
@@ -1717,8 +1725,12 @@ inline Tensor Tensor::min_values(IntArrayRef dim, bool keepdim) const {
 #ifdef USE_STATIC_DISPATCH
     return TypeDefault::min_values(const_cast<Tensor&>(*this), dim, keepdim);
 #else
-    static auto table = globalATenDispatch().getOpTable("aten::min_values(Tensor self, int[1] dim, bool keepdim=False) -> Tensor");
-    return table->getOp<Tensor (const Tensor &, IntArrayRef, bool)>(tensorTypeIdToBackend(type_id()), is_variable())(const_cast<Tensor&>(*this), dim, keepdim);
+    static c10::OperatorHandle op = c10::Dispatcher::singleton().findSchema({"aten::min_values", ""}).value();
+    if (is_variable()) {
+        return c10::Dispatcher::singleton().callUnboxedAutogradKernel<Tensor, const Tensor &, IntArrayRef, bool>(op, const_cast<Tensor&>(*this), dim, keepdim);
+    } else {
+        return c10::Dispatcher::singleton().lookup(op, type_id()).callUnboxed<Tensor, const Tensor &, IntArrayRef, bool>(const_cast<Tensor&>(*this), dim, keepdim);
+    }
 #endif
 }
 #ifdef BUILD_NAMEDTENSOR
@@ -2647,8 +2659,12 @@ inline Tensor Tensor::std(IntArrayRef dim, bool unbiased, bool keepdim) const {
 #ifdef USE_STATIC_DISPATCH
     return TypeDefault::std(const_cast<Tensor&>(*this), dim, unbiased, keepdim);
 #else
-    static auto table = globalATenDispatch().getOpTable("aten::std.dim(Tensor self, int[1] dim, bool unbiased=True, bool keepdim=False) -> Tensor");
-    return table->getOp<Tensor (const Tensor &, IntArrayRef, bool, bool)>(tensorTypeIdToBackend(type_id()), is_variable())(const_cast<Tensor&>(*this), dim, unbiased, keepdim);
+    static c10::OperatorHandle op = c10::Dispatcher::singleton().findSchema({"aten::std", "dim"}).value();
+    if (is_variable()) {
+        return c10::Dispatcher::singleton().callUnboxedAutogradKernel<Tensor, const Tensor &, IntArrayRef, bool, bool>(op, const_cast<Tensor&>(*this), dim, unbiased, keepdim);
+    } else {
+        return c10::Dispatcher::singleton().lookup(op, type_id()).callUnboxed<Tensor, const Tensor &, IntArrayRef, bool, bool>(const_cast<Tensor&>(*this), dim, unbiased, keepdim);
+    }
 #endif
 }
 #ifdef BUILD_NAMEDTENSOR
@@ -2821,8 +2837,12 @@ inline Tensor Tensor::roll(IntArrayRef shifts, IntArrayRef dims) const {
             AT_ERROR("roll not implemented for ", at::toString(tensorTypeIdToBackend(type_id())));
     }
 #else
-    static auto table = globalATenDispatch().getOpTable("aten::roll(Tensor self, int[1] shifts, int[1] dims=[]) -> Tensor");
-    return table->getOp<Tensor (const Tensor &, IntArrayRef, IntArrayRef)>(tensorTypeIdToBackend(type_id()), is_variable())(const_cast<Tensor&>(*this), shifts, dims);
+    static c10::OperatorHandle op = c10::Dispatcher::singleton().findSchema({"aten::roll", ""}).value();
+    if (is_variable()) {
+        return c10::Dispatcher::singleton().callUnboxedAutogradKernel<Tensor, const Tensor &, IntArrayRef, IntArrayRef>(op, const_cast<Tensor&>(*this), shifts, dims);
+    } else {
+        return c10::Dispatcher::singleton().lookup(op, type_id()).callUnboxed<Tensor, const Tensor &, IntArrayRef, IntArrayRef>(const_cast<Tensor&>(*this), shifts, dims);
+    }
 #endif
 }
 inline Tensor Tensor::rot90(int64_t k, IntArrayRef dims) const {
@@ -2915,8 +2935,12 @@ inline Tensor Tensor::var(IntArrayRef dim, bool unbiased, bool keepdim) const {
 #ifdef USE_STATIC_DISPATCH
     return TypeDefault::var(const_cast<Tensor&>(*this), dim, unbiased, keepdim);
 #else
-    static auto table = globalATenDispatch().getOpTable("aten::var.dim(Tensor self, int[1] dim, bool unbiased=True, bool keepdim=False) -> Tensor");
-    return table->getOp<Tensor (const Tensor &, IntArrayRef, bool, bool)>(tensorTypeIdToBackend(type_id()), is_variable())(const_cast<Tensor&>(*this), dim, unbiased, keepdim);
+    static c10::OperatorHandle op = c10::Dispatcher::singleton().findSchema({"aten::var", "dim"}).value();
+    if (is_variable()) {
+        return c10::Dispatcher::singleton().callUnboxedAutogradKernel<Tensor, const Tensor &, IntArrayRef, bool, bool>(op, const_cast<Tensor&>(*this), dim, unbiased, keepdim);
+    } else {
+        return c10::Dispatcher::singleton().lookup(op, type_id()).callUnboxed<Tensor, const Tensor &, IntArrayRef, bool, bool>(const_cast<Tensor&>(*this), dim, unbiased, keepdim);
+    }
 #endif
 }
 #ifdef BUILD_NAMEDTENSOR
@@ -2985,8 +3009,12 @@ inline Tensor Tensor::norm(c10::optional<Scalar> p, IntArrayRef dim, bool keepdi
 #ifdef USE_STATIC_DISPATCH
     return TypeDefault::norm(const_cast<Tensor&>(*this), p, dim, keepdim);
 #else
-    static auto table = globalATenDispatch().getOpTable("aten::norm.ScalarOpt_dim(Tensor self, Scalar? p, int[1] dim, bool keepdim=False) -> Tensor");
-    return table->getOp<Tensor (const Tensor &, c10::optional<Scalar>, IntArrayRef, bool)>(tensorTypeIdToBackend(type_id()), is_variable())(const_cast<Tensor&>(*this), p, dim, keepdim);
+    static c10::OperatorHandle op = c10::Dispatcher::singleton().findSchema({"aten::norm", "ScalarOpt_dim"}).value();
+    if (is_variable()) {
+        return c10::Dispatcher::singleton().callUnboxedAutogradKernel<Tensor, const Tensor &, c10::optional<Scalar>, IntArrayRef, bool>(op, const_cast<Tensor&>(*this), p, dim, keepdim);
+    } else {
+        return c10::Dispatcher::singleton().lookup(op, type_id()).callUnboxed<Tensor, const Tensor &, c10::optional<Scalar>, IntArrayRef, bool>(const_cast<Tensor&>(*this), p, dim, keepdim);
+    }
 #endif
 }
 #ifdef BUILD_NAMEDTENSOR
