@@ -28,6 +28,18 @@ def _build_dim_map(tensor):
                         for idx, name in enumerate(tensor.names)])
 
 
+def _unzip_namedshape(namedshape):
+    if isinstance(namedshape, OrderedDict):
+        namedshape = namedshape.items()
+    if not isinstance(namedshape, list) and not isinstance(namedshape, tuple):
+        raise RuntimeError(
+            'Expected namedshape to be OrderedDict or list/tuple of tuples, got: {}'
+            .format(type(namedshape)))
+    if len(namedshape) == 0:
+        raise RuntimeError('Expected namedshape to non-empty.')
+    return zip(*namedshape)
+
+
 def _namer_api_name(inplace):
     if inplace:
         return 'names_'
