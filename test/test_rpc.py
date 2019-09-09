@@ -9,7 +9,10 @@ import torch.distributed as dist
 
 from common_distributed import MultiProcessTestCase
 from common_utils import load_tests, run_tests
+from os import getenv
 
+BACKEND = getenv('RPC_BACKEND', dist.RpcBackend.PROCESS_GROUP)
+RPC_INIT_URL = getenv('RPC_INIT_URL', '')
 
 # it is used to test python user defined function over rpc
 def my_function(a, b, c):
@@ -79,7 +82,10 @@ def _wrap_with_rpc(func):
         store = dist.FileStore(self.file.name, self.world_size)
         dist.init_process_group(backend='gloo', rank=self.rank,
                                 world_size=self.world_size, store=store)
-        dist.init_model_parallel('worker%d' % self.rank)
+        dist.init_model_parallel(rpc_backend=BACKEND,
+                                 self_name='worker%d' % self.rank,
+                                 self_rank=self.rank,
+                                 rpc_init_url=RPC_INIT_URL)
         func(self)
         dist.join_rpc()
 
@@ -123,12 +129,15 @@ class RpcTest(MultiProcessTestCase):
         ):
             dist.rpc(self_worker_name, torch.add, args=(torch.ones(2, 2), 1))
 
-    def test_duplicated_names(self):
+    def test_reinit(self):
         store = dist.FileStore(self.file.name, self.world_size)
         dist.init_process_group(backend="gloo", rank=self.rank,
                                 world_size=self.world_size, store=store)
         with self.assertRaisesRegex(RuntimeError, "is not unique"):
-            dist.init_model_parallel("duplicated_name")
+            dist.init_model_parallel(rpc_backend=BACKEND,
+                                     self_name="duplicate_name",
+                                     self_rank=self.rank,
+                                     rpc_init_url=RPC_INIT_URL)
         dist.join_rpc()
 
     def test_invalid_names(self):
@@ -137,19 +146,21 @@ class RpcTest(MultiProcessTestCase):
                                 world_size=self.world_size, store=store)
 
         with self.assertRaisesRegex(RuntimeError, "Worker name must match"):
-            dist.init_model_parallel("abc*")
+            dist.init_model_parallel(self_name="abc*")
 
         with self.assertRaisesRegex(RuntimeError, "Worker name must match"):
-            dist.init_model_parallel(" ")
+            dist.init_model_parallel(self_name=" ")
 
         with self.assertRaisesRegex(RuntimeError, "must be non-empty"):
-            dist.init_model_parallel("")
+            dist.init_model_parallel(self_name="")
 
         # If the number in the message does not match, it is likely that the
         # value of MAX_NAME_LEN in RPC WorkerId has changed.
         with self.assertRaisesRegex(RuntimeError, "shorter than 128"):
-            dist.init_model_parallel("".join(["a" for _ in range(500)]))
-
+            dist.init_model_parallel(rpc_backend=BACKEND,
+                                     self_name="".join(["a" for _ in range(500)]),
+                                     self_rank=self.rank,
+                                     rpc_init_url=RPC_INIT_URL)
         dist.join_rpc()
 
     @_wrap_with_rpc
