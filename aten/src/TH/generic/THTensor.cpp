@@ -690,6 +690,7 @@ inline void THTensor_(check_shape_except_dim)(THTensor *first, THTensor *second,
   }
 }
 
+#if 0
 void THTensor_(catArray)(THTensor *result, THTensor **inputs, int numInputs, int dimension)
 {
   // previously, size [0] tensors were the only possible empty tensors; thus, it wasn't possible
@@ -801,6 +802,163 @@ void THTensor_(catArray)(THTensor *result, THTensor **inputs, int numInputs, int
     }
   }
 }
+#else
+
+void THTensor_(catArray)(THTensor *result, THTensor **inputs, int numInputs, int dimension)
+{
+	// previously, size [0] tensors were the only possible empty tensors; thus, it wasn't possible
+	// to cat empty tensors unless all the other tensors were 1-dimensional, so we allowed these tensors
+	// to be "skipped".  We maintain this behavior for backwards compatibility, but only for this specific
+	// size (i.e. other empty sizes are not skipped).
+	// FIXME: warn if this is the case
+	// fprintf(stderr, "In catArray..\n");
+	bool allSkipped= true;
+	int64_t nDims = 0;
+	THTensor *notSkippedTensor;  // non-owning reference
+	auto should_skip = [](THTensor *t) { return t->is_empty() && t->dim() == 1; };
+	for (int i = 0; i < numInputs; i++) {
+		if (should_skip(inputs[i])) {
+			continue;
+		}
+		// We've found a non-empty tensor
+		allSkipped = false;
+		notSkippedTensor = inputs[i];
+		nDims = notSkippedTensor->dim();
+		break;
+	}
+	if (allSkipped) {
+		return;
+	}
+
+	// Compute cat_dimension based on the non-empty tensor
+	THArgCheck(dimension < nDims, 4, "invalid dimension %d", dimension);
+	THArgCheck(numInputs > 0, 3, "invalid number of inputs %d", numInputs);
+
+	// Compute size of the result in the cat dimension
+	int64_t cat_dim_size = 0;
+	for (int i = 0; i < numInputs; i++) {
+		THTensor *tensor = inputs[i];
+		if (should_skip(tensor)) {
+			continue;
+		}
+		THTensor_(check_shape_except_dim)(notSkippedTensor, tensor, dimension);
+		cat_dim_size += tensor->size(dimension);
+	}
+
+	// Compute the size of the result
+	std::vector<int64_t> size(nDims);
+	for (int dim = 0; dim < nDims; dim++) {
+		int64_t result_dim_size = notSkippedTensor->size(dim);
+		if (dim == dimension) {
+			result_dim_size = cat_dim_size;
+		}
+		size[dim] = result_dim_size;
+	}
+	THTensor_(resize)(result, size, {});
+
+	// Check contiguity of all inputs and result
+	bool allContiguous = true;
+	for (int i = 0; i < numInputs; i++) {
+		if(!should_skip(inputs[i])) {
+			// inputs[i] = THTensor_(newContiguous)(inputs[i]);
+			allContiguous = allContiguous && THTensor_(isContiguous)(inputs[i]);
+		}
+	}
+	// fprintf(stderr, "contig: %d, numInputs: %d\n", allContiguous, numInputs);
+	// result = THTensor_(newContiguous)(result);   // ADD!!
+	allContiguous = allContiguous && THTensor_(isContiguous)(result);
+	
+	// First path is for contiguous inputs
+	// Second path for non-contiguous
+	int64_t offset;
+	if (allContiguous) {
+		// fprintf(stderr, "Within if..\n");
+		int64_t outer = 1, inner = 1;
+
+		// Outer is the product of dimensions from the left up to (and not
+		// including the concatenation dimension). This becomes the number of times
+		// we have to replicate the memcpy call.
+		for (int i = 0; i < dimension; ++i) {
+			outer *= size[i];
+		}
+
+		// The product of dimensions to the right of the concatenation dimension.
+		// We go on to multiply this by the size of the concat dimension for
+		// each input tensor.
+		for (int i = dimension + 1; i < size.size(); ++i) {
+			inner *= size[i];
+		}
+
+		scalar_t* result_data = THStorage_(data)(THTensor_getStoragePtr(result)) + result->storage_offset();
+		// int tid = omp_get_thread_num();
+		// int ntid = omp_get_num_threads();
+		// fprintf(stderr, "thread: %d/%d \n", tid, ntid);
+		// if (ntid > 1) exit(0);
+
+		int64_t val = outer * numInputs;  // ADD!!
+		int catchar[val][4];   // ADD!!
+		int cntr = 0;   // ADD!!
+		
+		offset = 0;
+		for (int o = 0; o < outer; ++o) {
+			for (int j = 0; j < numInputs; ++j) {
+				if (!should_skip(inputs[j])) {
+					THTensor* input0 = inputs[j];
+					// scalar_t* input0_data = THStorage_(data)(THTensor_getStoragePtr(input0)) + input0->storage_offset();
+					int64_t local_inner = inner * input0->size(dimension);
+					if (local_inner != 0) {
+#define ORIG 0
+#if ORIG						
+						// memcpy(result_data + offset, input0_data + o*local_inner, local_inner*sizeof(scalar_t));
+						for (int l=0; l<local_inner; l++)
+							result_data[offset + l] = input0_data[o*local_inner + l];
+#else  // ADD !!
+						catchar[cntr][0] = offset;
+						catchar[cntr][1] = o*local_inner;
+						catchar[cntr][2] = local_inner;
+						catchar[cntr++][3] = j;
+						
+#endif
+					} // input0_size != 0
+					offset += local_inner;
+				}  // should_skip
+			} // for j
+		} // for i
+		
+#if !ORIG  // ADD!!
+#pragma omp parallel for
+		for (int j=0; j<cntr; j++)
+		{
+			int a = catchar[j][0];
+			int b = catchar[j][1];
+			int lim = catchar[j][2];
+			int jj = catchar[j][3]; 
+			THTensor* input0 = inputs[jj];
+			scalar_t* input0_data = THStorage_(data)(THTensor_getStoragePtr(input0)) + input0->storage_offset();
+#pragma simd
+			for (int l=0; l < lim; l++) result_data[a + l] = input0_data[b + l];
+		}
+#endif		
+	} else {
+		// fprintf(stderr, "Within else..\n");
+		offset = 0;
+		for (int j = 0; j < numInputs; j++) {
+			if (!should_skip(inputs[j])) {
+				int64_t dimSize = inputs[j]->size(dimension);
+				THTensor *nt = THTensor_(newWithTensor)(result);
+				THTensor_(narrow)(nt, NULL, dimension, offset, dimSize);
+				at::Tensor nt__wrap = THTensor_wrap(nt);
+				at::Tensor inputs_wrap = THTensor_wrap(inputs[j]);
+				at::native::copy_(nt__wrap, inputs_wrap, false);
+				c10::raw::intrusive_ptr::decref(nt);
+				offset += dimSize;
+			}
+		}
+	}
+	// fprintf(stderr, "Out catArray..\n");
+}
+#endif
+
 
 THDescBuff THTensor_(desc)(const THTensor *tensor) {
   const int L = TH_DESC_BUFF_LEN;
